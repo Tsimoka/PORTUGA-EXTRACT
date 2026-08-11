@@ -1,0 +1,37 @@
+name: Executer le Scraper LogisHotels
+
+on:
+  workflow_dispatch: # Lancement manuel
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    # Autorise GitHub Actions à écrire et modifier les fichiers du dépôt
+    permissions:
+      contents: write
+
+    steps:
+    - name: Récupérer le code source
+      uses: actions/checkout@v4
+
+    - name: Configurer Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Installer les dépendances
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4
+
+    - name: Exécuter le script de scraping
+      run: python scraper_logishotels.py
+
+    - name: Enregistrer le CSV directement dans le dossier GitHub
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@://github.com"
+        git add logishotels_resultats_villes_temps_reel.csv
+        git commit -m "Mise à jour automatique des résultats du scraping [Skip CI]" || echo "Aucun changement à enregistrer"
+        git push

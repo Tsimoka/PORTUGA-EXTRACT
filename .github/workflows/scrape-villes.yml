@@ -1,0 +1,72 @@
+# Workflow GitHub Actions : extraction wellness par VILLE, sauvegarde toutes
+# les 2 minutes vers GitHub. À placer dans .github/workflows/scrape-villes.yml
+# dans le même dépôt que scrape.yml (par département) — les deux peuvent
+# coexister et tourner en parallèle sans conflit (fichiers de sortie séparés).
+#
+# INSTALLATION :
+# 1. Place scrape_wellness_gmaps_villes.py et villes.csv à la racine du dépôt
+# 2. Place ce fichier dans .github/workflows/scrape-villes.yml
+# 3. Onglet Actions > "Extraction wellness (par ville)" > "Run workflow"
+
+name: Extraction wellness (par ville)
+
+on:
+  schedule:
+    - cron: "30 3 * * *"   # décalé de scrape.yml pour ne pas tout lancer en même temps
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          pip install playwright requests
+          playwright install --with-deps chromium
+
+      - name: Lancer le script et sauvegarder en continu
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config pull.rebase true
+
+          python -u scrape_wellness_gmaps_villes.py &
+          SCRIPT_PID=$!
+
+          while kill -0 $SCRIPT_PID 2>/dev/null; do
+            sleep 120
+            git add resultats_villes.csv villes.csv
+            if ! git diff --quiet --cached; then
+              git commit -m "Progression villes $(date -u +'%Y-%m-%d %H:%M UTC')"
+              git pull --rebase || true   # évite les conflits si l'autre workflow a poussé entre-temps
+              git push
+              echo "[i] Progression poussée vers GitHub."
+            fi
+          done
+
+          wait $SCRIPT_PID
+          EXIT_CODE=$?
+
+          git add resultats_villes.csv villes.csv
+          if ! git diff --quiet --cached; then
+            git commit -m "Résultat final villes $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase || true
+            git push
+          fi
+
+          exit $EXIT_CODE

@@ -1,0 +1,74 @@
+# Workflow GitHub Actions : extraction hôtels Booking.com par DÉPARTEMENT,
+# sauvegarde toutes les 2 minutes vers GitHub.
+# À placer dans .github/workflows/scrape-booking.yml, dans le même dépôt que
+# scrape.yml et scrape-villes.yml — les trois peuvent coexister (fichiers de
+# sortie séparés).
+#
+# INSTALLATION :
+# 1. Place scrape_hotels_booking.py à la racine du dépôt (departement.csv y
+#    est déjà si tu as suivi les étapes précédentes)
+# 2. Place ce fichier dans .github/workflows/scrape-booking.yml
+# 3. Onglet Actions > "Extraction Booking (par département)" > "Run workflow"
+
+name: Extraction Booking (par département)
+
+on:
+  schedule:
+    - cron: "0 4 * * *"   # décalé des deux autres workflows pour ne pas tout cumuler
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dépendances
+        run: |
+          pip install playwright
+          playwright install --with-deps chromium
+
+      - name: Lancer le script et sauvegarder en continu
+        env:
+          PYTHONUNBUFFERED: "1"
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config pull.rebase true
+
+          python -u scrape_hotels_booking.py &
+          SCRIPT_PID=$!
+
+          while kill -0 $SCRIPT_PID 2>/dev/null; do
+            sleep 120
+            git add resultats_booking.csv statut_booking.csv
+            if ! git diff --quiet --cached; then
+              git commit -m "Progression Booking $(date -u +'%Y-%m-%d %H:%M UTC')"
+              git pull --rebase || true   # évite les conflits si un autre workflow a poussé entre-temps
+              git push
+              echo "[i] Progression poussée vers GitHub."
+            fi
+          done
+
+          wait $SCRIPT_PID
+          EXIT_CODE=$?
+
+          git add resultats_booking.csv statut_booking.csv
+          if ! git diff --quiet --cached; then
+            git commit -m "Résultat final Booking $(date -u +'%Y-%m-%d %H:%M UTC')"
+            git pull --rebase || true
+            git push
+          fi
+
+          exit $EXIT_CODE
